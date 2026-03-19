@@ -327,9 +327,9 @@ Flow:
 Keychain keys:
 
 ```ts
-// Bun.secrets API uses { service, name } objects (not plain strings)
-await Bun.secrets.set({ service: "ntfy-mac", name: "url" }, url)
-await Bun.secrets.set({ service: "ntfy-mac", name: "token" }, token)
+// Bun.secrets.set takes a single { service, name, value } object
+await Bun.secrets.set({ service: "ntfy-mac", name: "url", value: url })
+await Bun.secrets.set({ service: "ntfy-mac", name: "token", value: token })
 ```
 
 ---
