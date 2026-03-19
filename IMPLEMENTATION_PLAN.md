@@ -5,33 +5,39 @@ Forward ntfy notifications to macOS Notification Center via a native daemon.
 ## Architecture Decisions
 
 ### Why Bun + TypeScript (not Go/Swift)
+
 - `bun build --compile` produces a fully self-contained binary — no runtime, no dependencies
 - Cross-compilation to both `darwin-arm64` and `darwin-x64` in CI
 - TypeScript is the fastest iteration path for a solo project
 - Bun's native Keychain API (`Bun.secrets`) replaces manual `security` CLI calls
 
 ### Why a Homebrew tap (not homebrew-core yet)
+
 - homebrew-core requires ≥75 GitHub stars + `brew audit --strict` compliance
 - Tap is immediately installable without any ceremony: `brew install jkrumm/ntfy-mac/ntfy-mac`
 - Naming `homebrew-ntfy-mac` makes Homebrew auto-resolve tap as `jkrumm/ntfy-mac`
 
 ### Why osascript (not native macOS API)
+
 - No Xcode required, no Swift/ObjC, no app bundle
 - Supports all 4 notification fields: title, subtitle, message, sound
 - Works reliably from a binary without code signing (for now)
 - Limitation: no custom icon, no click callbacks — acceptable tradeoff
 
 ### Credential storage
+
 - macOS Keychain via `Bun.secrets` (native, no plaintext files)
 - Keys: `ntfy-mac:url`, `ntfy-mac:token`
 - Fallback: `NTFY_URL` / `NTFY_TOKEN` env vars (for CI/server use)
 
 ### Connection strategy
+
 - Primary: SSE (`GET /sse?topics=...&since=<lastId|latest>`)
 - Fallback: JSON polling (`GET /json?since=<lastId>&poll=1`) during backoff
 - Backoff: 5s → 10s → 20s → ... → 5min cap
 
 ### State file
+
 - `~/.local/share/ntfy-mac/state.json`
 - Fields: `seen` (Record<id, timestamp>), `lastMessageId`, `lastUpdateCheck`
 - Cleanup on load: drop entries >48h, trim to 1000 most recent
@@ -41,6 +47,7 @@ Forward ntfy notifications to macOS Notification Center via a native daemon.
 ## Prerequisites
 
 Before implementing, ensure you have:
+
 - Bun installed (`brew install bun`)
 - `gh` CLI authenticated (`gh auth status`)
 - `semantic-release` compatible npm token (for auto-publishing GitHub Releases)
@@ -53,6 +60,7 @@ Before implementing, ensure you have:
 ### Step 1 — Project Scaffold
 
 Files to create:
+
 - `package.json` — scripts, dependencies, semantic-release config
 - `tsconfig.json` — strict TypeScript, Bun types
 - `.prettierrc` — formatting config
@@ -61,6 +69,7 @@ Files to create:
 - `README.md` — minimal placeholder (full docs in Step 11)
 
 **package.json scripts:**
+
 ```json
 {
   "scripts": {
@@ -88,25 +97,30 @@ Files to create:
 ```
 
 **semantic-release config in package.json:**
+
 ```json
 {
   "release": {
-    "branches": ["main"],
+    "branches": ["master"],
     "plugins": [
       "@semantic-release/commit-analyzer",
       "@semantic-release/release-notes-generator",
       ["@semantic-release/changelog", { "changelogFile": "CHANGELOG.md" }],
       "@semantic-release/github",
-      ["@semantic-release/git", {
-        "assets": ["CHANGELOG.md"],
-        "message": "chore(release): ${nextRelease.version}"
-      }]
+      [
+        "@semantic-release/git",
+        {
+          "assets": ["CHANGELOG.md"],
+          "message": "chore(release): ${nextRelease.version}"
+        }
+      ]
     ]
   }
 }
 ```
 
 **tsconfig.json:**
+
 ```json
 {
   "compilerOptions": {
@@ -125,6 +139,7 @@ Files to create:
 ### Step 2 — `src/types.ts` + `src/config.ts`
 
 **`types.ts`** — all shared interfaces:
+
 ```ts
 export interface NtfyMessage {
   id: string
@@ -138,19 +153,20 @@ export interface NtfyMessage {
 }
 
 export interface Config {
-  url: string          // e.g. https://ntfy.jkrumm.com
+  url: string // e.g. https://ntfy.jkrumm.com
   token: string
-  topics?: string[]    // override auto-discovery
+  topics?: string[] // override auto-discovery
 }
 
 export interface AppState {
-  seen: Record<string, number>   // id → unix timestamp (ms)
+  seen: Record<string, number> // id → unix timestamp (ms)
   lastMessageId: string | null
   lastUpdateCheck: number | null // unix timestamp (ms)
 }
 ```
 
 **`config.ts`** — load credentials:
+
 1. Try `Bun.secrets.get("ntfy-mac:url")` + `Bun.secrets.get("ntfy-mac:token")`
 2. Fall back to `process.env.NTFY_URL` + `process.env.NTFY_TOKEN`
 3. If `NTFY_TOPICS` env var set → parse as comma-separated list
@@ -165,6 +181,7 @@ Validation: URL must be valid HTTP/HTTPS. Token must be non-empty.
 State file location: `~/.local/share/ntfy-mac/state.json`
 
 Functions:
+
 - `loadState(): AppState` — read file, parse JSON, run cleanup
 - `saveState(state: AppState): void` — atomic write (write to `.tmp`, rename)
 - `cleanup(state: AppState): AppState` — drop seen entries >48h, trim to 1000
@@ -172,6 +189,7 @@ Functions:
 - `markSeen(state: AppState, id: string): AppState`
 
 Atomic write pattern (prevents corrupt state on crash):
+
 ```ts
 const tmp = stateFile + ".tmp"
 await Bun.write(tmp, JSON.stringify(state, null, 2))
@@ -183,6 +201,7 @@ await Bun.$`mv ${tmp} ${stateFile}`
 ### Step 4 — `src/ntfy.ts`
 
 **Topic discovery:**
+
 ```ts
 async function discoverTopics(config: Config): Promise<string[]>
 // GET /v1/account → body.subscriptions[].topic
@@ -190,13 +209,14 @@ async function discoverTopics(config: Config): Promise<string[]>
 ```
 
 **SSE streaming:**
+
 ```ts
 async function connectSSE(
   config: Config,
   topics: string[],
-  since: string,           // message ID or "latest"
+  since: string, // message ID or "latest"
   onMessage: (msg: NtfyMessage) => void,
-  onError: (err: Error) => void
+  onError: (err: Error) => void,
 ): Promise<void>
 // URL: {url}/sse?topics={topics.join(",")}&since={since}
 // Headers: Authorization: Bearer {token}
@@ -206,23 +226,19 @@ async function connectSSE(
 ```
 
 **Polling fallback:**
+
 ```ts
-async function pollMessages(
-  config: Config,
-  topics: string[],
-  since: string
-): Promise<NtfyMessage[]>
+async function pollMessages(config: Config, topics: string[], since: string): Promise<NtfyMessage[]>
 // GET /json?topics=...&since=...&poll=1
 // Parse newline-delimited JSON (one message per line)
 ```
 
 **Connection loop** (exported main function):
+
 ```ts
-async function startListener(
-  config: Config,
-  onMessage: (msg: NtfyMessage) => void
-): Promise<never>
+async function startListener(config: Config, onMessage: (msg: NtfyMessage) => void): Promise<never>
 ```
+
 - Load `lastMessageId` from state
 - Start SSE with `since = lastMessageId ?? "latest"`
 - On SSE error: poll once, then wait with exponential backoff (5s→5min)
@@ -233,6 +249,7 @@ async function startListener(
 ### Step 5 — `src/notify.ts`
 
 **Priority → sound mapping:**
+
 ```ts
 const SOUND: Record<number, string | null> = {
   5: "Sosumi",
@@ -248,6 +265,7 @@ Ntfy tags map to emoji: `+1` → `👍`, `warning` → `⚠️`, `rotating_light
 Use a lookup table for common ones; pass unknown tags as-is.
 
 **`sendNotification(msg: NtfyMessage): Promise<void>`:**
+
 ```ts
 // Build osascript args:
 // title: msg.title ?? capitalize(msg.topic)
@@ -262,6 +280,7 @@ await Bun.$`osascript -e ${script}`
 ```
 
 **`sendSummaryNotification(count: number, oldestTopic: string): Promise<void>`:**
+
 ```ts
 // title: "ntfy-mac"
 // message: `${count} notifications while you were away`
@@ -270,6 +289,7 @@ await Bun.$`osascript -e ${script}`
 ```
 
 **`sendSetupNotification(): Promise<void>`:**
+
 ```ts
 // title: "ntfy-mac setup required"
 // message: "Run: ntfy-mac setup"
@@ -277,6 +297,7 @@ await Bun.$`osascript -e ${script}`
 ```
 
 **`sendUpdateNotification(version: string): Promise<void>`:**
+
 ```ts
 // title: "ntfy-mac update available"
 // message: `brew upgrade jkrumm/ntfy-mac/ntfy-mac && brew services restart ntfy-mac`
@@ -291,6 +312,7 @@ Interactive CLI wizard triggered by `ntfy-mac setup`.
 Uses `prompt()` (Bun built-in) for user input.
 
 Flow:
+
 1. Print welcome header
 2. Prompt: "NTFY server URL" (default: `https://ntfy.example.com`)
 3. Prompt: "Auth token" (mask input if possible)
@@ -300,6 +322,7 @@ Flow:
 7. Print next steps: `brew services start ntfy-mac`
 
 Keychain keys:
+
 ```ts
 await Bun.secrets.set("ntfy-mac:url", url)
 await Bun.secrets.set("ntfy-mac:token", token)
@@ -330,7 +353,7 @@ if (!config) {
 checkForUpdate(config).catch(() => {}) // never throws
 
 // Discover topics
-const topics = config.topics ?? await discoverTopics(config)
+const topics = config.topics ?? (await discoverTopics(config))
 if (topics.length === 0) {
   console.error("No topics found. Subscribe to topics in ntfy first.")
   process.exit(1)
@@ -346,6 +369,7 @@ await startListener(config, async (msg) => {
 ```
 
 **Update check logic:**
+
 ```ts
 async function checkForUpdate(config: Config): Promise<void>
 // GET https://api.github.com/repos/jkrumm/homebrew-ntfy-mac/releases/latest
@@ -356,6 +380,7 @@ async function checkForUpdate(config: Config): Promise<void>
 ```
 
 **VERSION constant** — injected at build time via `--define`:
+
 ```ts
 declare const APP_VERSION: string // set in bun build --define
 ```
@@ -367,6 +392,7 @@ Build scripts add: `--define APP_VERSION='"1.0.0"'` (semantic-release updates th
 ### Step 8 — Tests
 
 **`tests/dedup.test.ts`:**
+
 - `isSeen` returns false for new ID, true after `markSeen`
 - `cleanup` drops entries older than 48h
 - `cleanup` trims to 1000 most recent when over limit
@@ -374,6 +400,7 @@ Build scripts add: `--define APP_VERSION='"1.0.0"'` (semantic-release updates th
 - Atomic write: `.tmp` file cleaned up after successful save
 
 **`tests/notify.test.ts`:**
+
 - Priority 5 → sound "Sosumi"
 - Priority 3 → sound "Pop"
 - Priority 1 → no sound (null)
@@ -382,6 +409,7 @@ Build scripts add: `--define APP_VERSION='"1.0.0"'` (semantic-release updates th
 - Unknown tags → passed through as-is
 
 **`tests/ntfy.test.ts`:**
+
 - `NtfyMessage` JSON parsing: all fields, optional fields
 - Invalid JSON line → skipped (no throw)
 - Missed-message categorization:
@@ -400,11 +428,11 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [master]
 
 jobs:
   release:
-    runs-on: macos-latest  # required for darwin cross-compile targets
+    runs-on: macos-latest # required for darwin cross-compile targets
     permissions:
       contents: write
       issues: write
@@ -413,7 +441,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # semantic-release needs full history
+          fetch-depth: 0 # semantic-release needs full history
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -515,6 +543,7 @@ end
 ### Step 11 — `README.md`
 
 Full user-facing documentation covering:
+
 - What it does (1 paragraph)
 - Install + configure + start (3 commands)
 - How it works (SSE streaming, Keychain storage, missed-message handling)
@@ -548,13 +577,14 @@ After full implementation, verify:
 - [ ] Stop service 8h, restart → single summary notification
 - [ ] Stop service 15h, restart → silent (no notification storm)
 - [ ] Restart immediately → no duplicate notifications (dedup working)
-- [ ] Push feat commit to `main` → CI creates release, formula auto-updates
+- [ ] Push feat commit to `master` → CI creates release, formula auto-updates
 
 ---
 
 ## Release Checklist
 
 Before first release:
+
 - [ ] GitHub repo created: `jkrumm/homebrew-ntfy-mac`
 - [ ] `GITHUB_TOKEN` permissions: `contents: write`, `issues: write`, `pull-requests: write`
 - [ ] semantic-release dry run passes locally
