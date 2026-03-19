@@ -93,7 +93,11 @@ export async function sendNotification(msg: NtfyMessage): Promise<void> {
   const sound = getSound(msg.priority)
 
   const script = buildOsaScript({ title, subtitle, body: msg.message, sound })
-  await Bun.$`osascript -e ${script}`.quiet()
+  console.log(`[notify] ${title}: ${msg.message}`)
+  const result = await Bun.$`osascript -e ${script}`.quiet()
+  if (result.exitCode !== 0) {
+    console.error(`[notify] osascript failed (exit ${result.exitCode}):`, result.stderr.toString())
+  }
 
   if (msg.click) {
     // Only open http/https URLs — guard against file://, terminal://, etc.
