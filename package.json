@@ -1,0 +1,51 @@
+{
+  "name": "ntfy-mac",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "start": "bun src/index.ts",
+    "setup": "bun src/index.ts setup",
+    "build:arm64": "bun build --compile --target=bun-darwin-arm64 src/index.ts --outfile dist/ntfy-mac-arm64 --define APP_VERSION='\"$npm_package_version\"'",
+    "build:x64": "bun build --compile --target=bun-darwin-x64 src/index.ts --outfile dist/ntfy-mac-x64 --define APP_VERSION='\"$npm_package_version\"'",
+    "build": "bun run build:arm64 && bun run build:x64",
+    "test": "bun test",
+    "lint": "bunx oxlint src",
+    "format": "bunx prettier --write .",
+    "format:check": "bunx prettier --check .",
+    "validate": "bun run format:check && bun run lint && bun run test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@semantic-release/changelog": "latest",
+    "@semantic-release/git": "latest",
+    "@semantic-release/github": "latest",
+    "oxlint": "latest",
+    "prettier": "latest",
+    "semantic-release": "latest"
+  },
+  "release": {
+    "branches": [
+      "master"
+    ],
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      [
+        "@semantic-release/changelog",
+        {
+          "changelogFile": "CHANGELOG.md"
+        }
+      ],
+      "@semantic-release/github",
+      [
+        "@semantic-release/git",
+        {
+          "assets": [
+            "CHANGELOG.md"
+          ],
+          "message": "chore(release): ${nextRelease.version}"
+        }
+      ]
+    ]
+  }
+}
