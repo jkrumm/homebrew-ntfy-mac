@@ -61,7 +61,7 @@ export async function pollMessages(
   topics: string[],
   since: string,
 ): Promise<NtfyMessage[]> {
-  const url = `${config.url}/json?topics=${topics.join(",")}&since=${since}&poll=1`
+  const url = `${config.url}/${topics.join(",")}/json?since=${since}&poll=1`
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${config.token}` },
   })
@@ -79,9 +79,12 @@ async function connectSSE(
   since: string,
   onMessage: (msg: NtfyMessage) => Promise<void>,
 ): Promise<void> {
-  const url = `${config.url}/sse?topics=${topics.join(",")}&since=${since}`
+  const url = `${config.url}/${topics.join(",")}/sse?since=${since}`
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${config.token}` },
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      Accept: "text/event-stream",
+    },
   })
   if (!res.ok) throw new Error(`ntfy SSE returned ${res.status}`)
   if (!res.body) throw new Error("ntfy SSE response has no body")
@@ -99,7 +102,10 @@ async function connectSSE(
     for (const line of lines) {
       if (!line.startsWith("data: ")) continue
       const msg = parseNtfyLine(line.slice(6))
-      if (msg) await onMessage(msg)
+      if (msg) {
+        console.log(`[sse] received: ${msg.topic} / ${msg.id}`)
+        await onMessage(msg)
+      }
     }
   }
 }
@@ -116,18 +122,18 @@ export async function startListener(
 
   while (true) {
     try {
+      console.log(`[sse] connecting since=${since}`)
       await connectSSE(config, topics, since, async (msg) => {
         state = await loadState()
-        state = markSeen(state, msg.id)
         state = { ...state, lastMessageId: msg.id }
         await saveState(state)
         since = msg.id
         backoff = BACKOFF_INITIAL_MS
         await onMessage(msg)
       })
-      // SSE ended cleanly — treat as disconnect, fall through to backoff
+      console.log(`[sse] stream ended cleanly, reconnecting in ${backoff}ms`)
     } catch (err) {
-      console.error("ntfy SSE error:", err instanceof Error ? err.message : err)
+      console.error("[sse] error:", err instanceof Error ? err.message : err)
     }
 
     // Poll for any messages missed during the gap
