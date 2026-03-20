@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/jkrumm/ntfy-mac/compare/v1.3.1...v1.4.0) (2026-03-20)
+
+
+### Features
+
+* **notify:** use official gemoji emoji mappings for tags ([313eeb0](https://github.com/jkrumm/ntfy-mac/commit/313eeb05e627e878c37c1a37f73c79426ea36b84))
+
 ## [1.3.1](https://github.com/jkrumm/ntfy-mac/compare/v1.3.0...v1.3.1) (2026-03-20)
 
 
