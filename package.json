@@ -5,9 +5,10 @@
   "scripts": {
     "start": "bun src/index.ts",
     "setup": "bun src/index.ts setup",
-    "build:arm64": "bun build --compile --target=bun-darwin-arm64 src/index.ts --outfile dist/ntfy-mac-arm64 --define APP_VERSION='\"$npm_package_version\"'",
-    "build:x64": "bun build --compile --target=bun-darwin-x64 src/index.ts --outfile dist/ntfy-mac-x64 --define APP_VERSION='\"$npm_package_version\"'",
-    "build": "bun run build:arm64 && bun run build:x64",
+    "build:helper": "bash scripts/build-helper.sh",
+    "build:bun": "bun build --compile --target=bun-darwin-arm64 src/index.ts --outfile dist/ntfy-mac --define APP_VERSION='\"$npm_package_version\"'",
+    "build:package-helper": "mkdir -p dist && tar -czf dist/ntfy-notify.app.tar.gz -C assets ntfy-notify.app",
+    "build": "bun run build:helper && bun run build:bun && bun run build:package-helper",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
     "lint": "find src -name '*.ts' | xargs bunx oxlint",

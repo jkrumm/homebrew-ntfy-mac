@@ -27,22 +27,32 @@ export function isNewerVersion(latest: string, current: string): boolean {
   return lc > cc
 }
 
+const BASE_URL = "https://github.com/jkrumm/ntfy-mac/releases/download"
+
 async function downloadAndReplace(latestVersion: string): Promise<void> {
-  const arch = process.arch === "arm64" ? "arm64" : "x64"
-  const url = `https://github.com/jkrumm/ntfy-mac/releases/download/${latestVersion}/ntfy-mac-${arch}`
-
-  const res = await fetch(url, { headers: { "User-Agent": "ntfy-mac" } })
-  if (!res.ok) throw new Error(`Failed to download update (${res.status})`)
-
   await Bun.$`mkdir -p ${STATE_DIR}`.quiet()
-  const tmpPath = `${STATE_DIR}/ntfy-mac.tmp`
-  await Bun.write(tmpPath, await res.arrayBuffer())
-  await Bun.$`chmod +x ${tmpPath}`.quiet()
 
-  // Atomic replace — safe even on the running binary (old inode stays in memory).
-  // Use process.execPath so we always replace wherever this binary actually lives,
-  // regardless of install path.
-  await Bun.$`mv ${tmpPath} ${process.execPath}`.quiet()
+  // ── Main binary ────────────────────────────────────────────────────────────
+  const binUrl = `${BASE_URL}/${latestVersion}/ntfy-mac`
+  const binRes = await fetch(binUrl, { headers: { "User-Agent": "ntfy-mac" } })
+  if (!binRes.ok) throw new Error(`Failed to download binary (${binRes.status})`)
+
+  const tmpBin = `${STATE_DIR}/ntfy-mac.tmp`
+  await Bun.write(tmpBin, await binRes.arrayBuffer())
+  await Bun.$`chmod +x ${tmpBin}`.quiet()
+  // Atomic replace — safe on the running binary (old inode stays in memory)
+  await Bun.$`mv ${tmpBin} ${process.execPath}`.quiet()
+
+  // ── Swift notification helper ──────────────────────────────────────────────
+  const helperUrl = `${BASE_URL}/${latestVersion}/ntfy-notify.app.tar.gz`
+  const helperRes = await fetch(helperUrl, { headers: { "User-Agent": "ntfy-mac" } })
+  if (helperRes.ok) {
+    const tmpTar = `${STATE_DIR}/ntfy-notify.app.tar.gz`
+    await Bun.write(tmpTar, await helperRes.arrayBuffer())
+    // Extract into STATE_DIR — replaces existing ntfy-notify.app
+    await Bun.$`tar -xzf ${tmpTar} -C ${STATE_DIR}`.quiet()
+    await Bun.$`rm -f ${tmpTar}`.quiet()
+  }
 }
 
 // Called from the daemon's update check — exits so launchd restarts with new binary

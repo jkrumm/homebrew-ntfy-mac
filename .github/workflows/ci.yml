@@ -6,7 +6,7 @@ on:
 
 jobs:
   validate:
-    runs-on: macos-latest # macOS required: Bun.secrets types + osascript-adjacent tests
+    runs-on: macos-latest # macOS required: Bun types + Swift compilation
     steps:
       - uses: actions/checkout@v4
 
@@ -16,6 +16,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Build Swift helper
+        run: bun run build:helper
 
       - name: Validate
         run: bun run validate
