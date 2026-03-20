@@ -1,3 +1,17 @@
+# [1.3.0](https://github.com/jkrumm/ntfy-mac/compare/v1.2.0...v1.3.0) (2026-03-20)
+
+
+### Bug Fixes
+
+* **ci:** use RELEASE_TOKEN for semantic-release to bypass branch protection ([e02dd0d](https://github.com/jkrumm/ntfy-mac/commit/e02dd0dc632c5946ee2d6e12cd2b82c2b57cde29))
+* **cli:** guard uninstall against dev mode execution ([1366486](https://github.com/jkrumm/ntfy-mac/commit/13664869c004218637f67f8d72a8adc1b493fdfc))
+* **config:** use os.homedir() and atomic write permissions ([50ca5f5](https://github.com/jkrumm/ntfy-mac/commit/50ca5f5f3a911dc0e68dc14d89201223b0eeb259))
+
+
+### Features
+
+* **cli:** add ntfy-mac uninstall command ([b7799e7](https://github.com/jkrumm/ntfy-mac/commit/b7799e7aba66473635324ecbe7cbea4fc974333d))
+
 # [1.2.0](https://github.com/jkrumm/ntfy-mac/compare/v1.1.0...v1.2.0) (2026-03-20)
 
 
