@@ -1,4 +1,5 @@
 import { createInterface } from "readline"
+import { detectInstallMethod } from "./updater"
 import type { Config } from "./types"
 
 // ─── Input helpers ───────────────────────────────────────────────────────────
@@ -194,6 +195,10 @@ export async function runSetup(): Promise<void> {
   console.log("Setup complete!")
   console.log("")
   console.log("Start the daemon:")
-  console.log("  brew services start ntfy-mac")
+  if (detectInstallMethod() === "brew") {
+    console.log("  brew services start ntfy-mac")
+  } else {
+    console.log("  launchctl load -w ~/Library/LaunchAgents/com.jkrumm.ntfy-mac.plist")
+  }
   console.log("")
 }

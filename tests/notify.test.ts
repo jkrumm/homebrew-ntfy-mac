@@ -2,6 +2,57 @@ import { describe, expect, it } from "bun:test"
 import { buildOsaScript, capitalize, getSound, renderTags } from "../src/notify"
 import type { NtfyMessage } from "../src/types"
 
+// ─── sendUpdateAvailableNotification script ────────────────────────────────────
+
+describe("sendUpdateAvailableNotification script shape", () => {
+  it("includes version in title", () => {
+    const script = buildOsaScript({ title: "ntfy-mac v1.2.3 available", body: "brew upgrade ..." })
+    expect(script).toContain("ntfy-mac v1.2.3 available")
+  })
+
+  it("includes upgrade command in body", () => {
+    const cmd = "brew upgrade jkrumm/tap/ntfy-mac && brew services restart ntfy-mac"
+    const script = buildOsaScript({ title: "ntfy-mac v1.2.3 available", body: cmd })
+    expect(script).toContain("brew upgrade jkrumm/tap/ntfy-mac")
+  })
+
+  it("has no sound (update available is informational)", () => {
+    const script = buildOsaScript({ title: "ntfy-mac v1.2.3 available", body: "brew upgrade ..." })
+    expect(script).not.toContain("sound name")
+  })
+})
+
+// ─── sendUpdateSuccessNotification script ─────────────────────────────────────
+
+describe("sendUpdateSuccessNotification script shape", () => {
+  it("includes version in title", () => {
+    const script = buildOsaScript({
+      title: "ntfy-mac updated to v1.2.3",
+      body: "Restarted automatically.",
+      sound: "Pop",
+    })
+    expect(script).toContain("ntfy-mac updated to v1.2.3")
+  })
+
+  it("body is 'Restarted automatically.'", () => {
+    const script = buildOsaScript({
+      title: "ntfy-mac updated to v1.2.3",
+      body: "Restarted automatically.",
+      sound: "Pop",
+    })
+    expect(script).toContain("Restarted automatically.")
+  })
+
+  it("uses Pop sound", () => {
+    const script = buildOsaScript({
+      title: "ntfy-mac updated to v1.2.3",
+      body: "Restarted automatically.",
+      sound: "Pop",
+    })
+    expect(script).toContain('sound name "Pop"')
+  })
+})
+
 describe("getSound", () => {
   it("priority 5 → Sosumi", () => expect(getSound(5)).toBe("Sosumi"))
   it("priority 4 → Ping", () => expect(getSound(4)).toBe("Ping"))
