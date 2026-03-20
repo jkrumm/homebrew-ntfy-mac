@@ -81,13 +81,15 @@ async function testConnection(url: string, token: string): Promise<string[]> {
 async function startBrewService(): Promise<boolean> {
   process.stdout.write("Starting service... ")
   try {
-    await Bun.$`brew services start jkrumm/tap/ntfy-mac`.quiet()
+    // Use restart rather than start — handles both fresh installs and upgrades
+    // where Homebrew may have already started the service automatically.
+    await Bun.$`brew services restart jkrumm/tap/ntfy-mac`.quiet()
     console.log("✓")
     return true
   } catch {
     console.log("✗")
     console.log("Could not start service automatically. Run manually:")
-    console.log("  brew services start jkrumm/tap/ntfy-mac")
+    console.log("  brew services restart jkrumm/tap/ntfy-mac")
     return false
   }
 }
