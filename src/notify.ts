@@ -144,10 +144,22 @@ export async function sendConnectionFailureNotification(): Promise<void> {
   await Bun.$`osascript -e ${script}`.quiet()
 }
 
-export async function sendUpdateNotification(version: string): Promise<void> {
+export async function sendUpdateAvailableNotification(
+  version: string,
+  upgradeCommand: string,
+): Promise<void> {
   const script = buildOsaScript({
     title: `ntfy-mac ${version} available`,
-    body: "brew upgrade jkrumm/tap/ntfy-mac && brew services restart ntfy-mac",
+    body: upgradeCommand,
+  })
+  await Bun.$`osascript -e ${script}`.quiet()
+}
+
+export async function sendUpdateSuccessNotification(version: string): Promise<void> {
+  const script = buildOsaScript({
+    title: `ntfy-mac updated to ${version}`,
+    body: "Restarted automatically.",
+    sound: "Pop",
   })
   await Bun.$`osascript -e ${script}`.quiet()
 }
