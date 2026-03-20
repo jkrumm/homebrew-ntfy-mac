@@ -26,6 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # semantic-release needs full history
+          token: ${{ secrets.RELEASE_TOKEN }} # PAT as jkrumm — bypasses branch protection ruleset
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -51,7 +52,7 @@ jobs:
             @semantic-release/github
           extra_args: ${{ inputs.release_type != '' && format('--release-as {0}', inputs.release_type) || '' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }} # must be PAT, not default token — github-actions[bot] has no bypass rights
 
   # Separated from the release job so that update-formula only runs after
   # binaries are fully uploaded. A build failure won't orphan a released
