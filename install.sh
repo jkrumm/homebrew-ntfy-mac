@@ -10,12 +10,8 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 # ── Architecture ──────────────────────────────────────────────────────────────
 
 ARCH=$(uname -m)
-if [[ "$ARCH" == "arm64" ]]; then
-  SUFFIX="arm64"
-elif [[ "$ARCH" == "x86_64" ]]; then
-  SUFFIX="x64"
-else
-  echo "Unsupported architecture: $ARCH" >&2
+if [[ "$ARCH" != "arm64" ]]; then
+  echo "ntfy-mac requires Apple Silicon (arm64). Got: $ARCH" >&2
   exit 1
 fi
 
@@ -32,14 +28,22 @@ fi
 
 # ── Download binary ───────────────────────────────────────────────────────────
 
-echo "Installing ntfy-mac $LATEST ($ARCH)..."
+echo "Installing ntfy-mac $LATEST (arm64)..."
 mkdir -p "$INSTALL_DIR" "$STATE_DIR" "$(dirname "$PLIST")"
 
+# ── Main binary ────────────────────────────────────────────────────────────────
 curl -fsSL \
-  "https://github.com/jkrumm/ntfy-mac/releases/download/$LATEST/ntfy-mac-$SUFFIX" \
+  "https://github.com/jkrumm/ntfy-mac/releases/download/$LATEST/ntfy-mac" \
   -o "$BINARY.tmp"
 chmod +x "$BINARY.tmp"
 mv "$BINARY.tmp" "$BINARY"
+
+# ── Swift notification helper (.app bundle) ────────────────────────────────────
+curl -fsSL \
+  "https://github.com/jkrumm/ntfy-mac/releases/download/$LATEST/ntfy-notify.app.tar.gz" \
+  -o "$STATE_DIR/ntfy-notify.app.tar.gz"
+tar -xzf "$STATE_DIR/ntfy-notify.app.tar.gz" -C "$STATE_DIR"
+rm -f "$STATE_DIR/ntfy-notify.app.tar.gz"
 
 # ── LaunchAgent ───────────────────────────────────────────────────────────────
 
