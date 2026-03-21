@@ -4,11 +4,12 @@ import type { Config } from "./types"
 
 export const CONFIG_PATH = join(homedir(), ".config", "ntfy-mac", "config.json")
 
-type StoredConfig = { url: string; token: string }
+type StoredConfig = { url: string; token: string; sounds?: Record<string, string | null> }
 
 export async function loadConfig(): Promise<Config | null> {
   let url: string | null = null
   let token: string | null = null
+  let sounds: Config["sounds"]
 
   // Try config file first
   try {
@@ -17,6 +18,7 @@ export async function loadConfig(): Promise<Config | null> {
       const stored = (await file.json()) as StoredConfig
       url = stored.url ?? null
       token = stored.token ?? null
+      sounds = stored.sounds ?? undefined
     }
   } catch {
     // Config file unreadable or malformed
@@ -55,5 +57,26 @@ export async function loadConfig(): Promise<Config | null> {
         .filter(Boolean)
     : undefined
 
-  return { url: url.replace(/\/$/, ""), token: token.trim(), topics }
+  return { url: url.replace(/\/$/, ""), token: token.trim(), topics, sounds }
+}
+
+/** Read the raw stored config from disk (returns empty object if missing/malformed). */
+export async function loadStoredConfig(): Promise<Record<string, unknown>> {
+  try {
+    const file = Bun.file(CONFIG_PATH)
+    if (await file.exists()) return (await file.json()) as Record<string, unknown>
+  } catch {
+    // Unreadable or malformed
+  }
+  return {}
+}
+
+/** Merge fields into the stored config file without overwriting unrelated keys. */
+export async function updateStoredConfig(fields: Record<string, unknown>): Promise<void> {
+  const existing = await loadStoredConfig()
+  const merged = { ...existing, ...fields }
+  const { mkdirSync } = await import("fs")
+  const { dirname } = await import("path")
+  mkdirSync(dirname(CONFIG_PATH), { recursive: true })
+  await Bun.write(CONFIG_PATH, JSON.stringify(merged, null, 2) + "\n")
 }

@@ -6,7 +6,7 @@ import {
   type SystemSound,
   type InterruptionLevel,
 } from "./notifications"
-import type { NtfyMessage } from "./types"
+import type { NtfyMessage, SoundConfig } from "./types"
 
 // ─── Priority config ──────────────────────────────────────────────────────────
 
@@ -24,8 +24,19 @@ export const PRIORITY_CONFIG: Record<number, PriorityConfig> = {
   1: { sound: null, interruptionLevel: "passive", relevanceScore: 0.0 },
 }
 
-export function getSound(priority?: number): SystemSound | null {
-  return (PRIORITY_CONFIG[priority ?? 3] ?? PRIORITY_CONFIG[3]).sound
+/** Resolve the effective priority config, applying user sound overrides if present. */
+export function resolvePriorityConfig(
+  priority: number,
+  soundOverrides?: SoundConfig,
+): PriorityConfig {
+  const base = PRIORITY_CONFIG[priority] ?? PRIORITY_CONFIG[3]
+  const override = soundOverrides?.[String(priority)]
+  if (override === undefined) return base
+  return { ...base, sound: override as SystemSound | null }
+}
+
+export function getSound(priority?: number, soundOverrides?: SoundConfig): SystemSound | null {
+  return resolvePriorityConfig(priority ?? 3, soundOverrides).sound
 }
 
 // ─── Tag rendering ────────────────────────────────────────────────────────────
@@ -97,12 +108,17 @@ export interface NtfyNotificationPayload {
   categoryId?: string
 }
 
-export function buildNtfyPayload(msg: NtfyMessage): NtfyNotificationPayload {
+export function buildNtfyPayload(
+  msg: NtfyMessage,
+  soundOverrides?: SoundConfig,
+): NtfyNotificationPayload {
   const title = msg.title ?? capitalize(msg.topic)
   const tags = renderTags(msg.tags)
   const subtitle = tags ? `${msg.topic} • ${tags}` : msg.topic
-  const { sound, interruptionLevel, relevanceScore } =
-    PRIORITY_CONFIG[msg.priority ?? 3] ?? PRIORITY_CONFIG[3]
+  const { sound, interruptionLevel, relevanceScore } = resolvePriorityConfig(
+    msg.priority ?? 3,
+    soundOverrides,
+  )
 
   const payload: NtfyNotificationPayload = {
     title,
@@ -130,9 +146,13 @@ export function buildNtfyPayload(msg: NtfyMessage): NtfyNotificationPayload {
 
 // ─── Notification senders ─────────────────────────────────────────────────────
 
-export async function sendNotification(msg: NtfyMessage): Promise<void> {
-  const payload = buildNtfyPayload(msg)
-  console.log(`notify: [${msg.topic}] ${payload.title}`)
+export async function sendNotification(
+  msg: NtfyMessage,
+  soundOverrides?: SoundConfig,
+): Promise<void> {
+  const payload = buildNtfyPayload(msg, soundOverrides)
+  const prio = msg.priority ?? 3
+  console.log(`notify: [${msg.topic}] p${prio} ${payload.title}`)
   await sendNotificationPayload(payload)
 }
 

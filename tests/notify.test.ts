@@ -6,6 +6,7 @@ import {
   getSound,
   mapActions,
   renderTags,
+  resolvePriorityConfig,
   selectImageUrl,
   type NtfyNotificationPayload,
 } from "../src/notify"
@@ -64,6 +65,47 @@ describe("getSound", () => {
   it("priority 2 → null (silent)", () => expect(getSound(2)).toBeNull())
   it("priority 1 → null (silent)", () => expect(getSound(1)).toBeNull())
   it("undefined priority defaults to Pop (priority 3)", () => expect(getSound()).toBe("Pop"))
+
+  it("respects sound overrides", () => {
+    expect(getSound(5, { "5": "Glass" })).toBe("Glass")
+  })
+
+  it("override null makes sound silent", () => {
+    expect(getSound(3, { "3": null })).toBeNull()
+  })
+
+  it("unoverridden priorities keep defaults", () => {
+    expect(getSound(4, { "5": "Glass" })).toBe("Ping")
+  })
+})
+
+// ─── resolvePriorityConfig ───────────────────────────────────────────────────
+
+describe("resolvePriorityConfig", () => {
+  it("returns defaults when no overrides", () => {
+    expect(resolvePriorityConfig(5)).toEqual(PRIORITY_CONFIG[5])
+  })
+
+  it("returns defaults when overrides is undefined", () => {
+    expect(resolvePriorityConfig(3, undefined)).toEqual(PRIORITY_CONFIG[3])
+  })
+
+  it("overrides sound only, keeps interruptionLevel and relevanceScore", () => {
+    const result = resolvePriorityConfig(5, { "5": "Tink" })
+    expect(result.sound).toBe("Tink")
+    expect(result.interruptionLevel).toBe("time-sensitive")
+    expect(result.relevanceScore).toBe(1.0)
+  })
+
+  it("override to null makes priority silent", () => {
+    const result = resolvePriorityConfig(3, { "3": null })
+    expect(result.sound).toBeNull()
+    expect(result.interruptionLevel).toBe("active")
+  })
+
+  it("falls back to priority 3 for unknown priority", () => {
+    expect(resolvePriorityConfig(99)).toEqual(PRIORITY_CONFIG[3])
+  })
 })
 
 // ─── renderTags ───────────────────────────────────────────────────────────────
@@ -352,6 +394,17 @@ describe("buildNtfyPayload", () => {
       interruptionLevel: "active",
       relevanceScore: 0.5,
     })
+  })
+
+  it("applies sound overrides when provided", () => {
+    const p = buildNtfyPayload({ ...base, priority: 5 }, { "5": "Glass" })
+    expect(p.sound).toBe("Glass")
+    expect(p.interruptionLevel).toBe("time-sensitive") // unchanged
+  })
+
+  it("override to silent respects null", () => {
+    const p = buildNtfyPayload({ ...base, priority: 3 }, { "3": null })
+    expect(p.sound).toBeNull()
   })
 })
 

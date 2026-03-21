@@ -1,10 +1,10 @@
-import { CONFIG_PATH, loadConfig } from "./config"
+import { CONFIG_PATH, loadConfig, loadStoredConfig } from "./config"
 import { isSeen, loadState, markSeen, saveState } from "./dedup"
 import { NotificationBuilder, sendNotificationPayload } from "./notifications"
 import { discoverTopics, startListener, type MissedMessageResult } from "./ntfy"
 import {
-  PRIORITY_CONFIG,
   renderTags,
+  resolvePriorityConfig,
   sendConnectionFailureNotification,
   sendNotification,
   sendSetupNotification,
@@ -12,6 +12,9 @@ import {
   sendUpdateAvailableNotification,
   sendUpdateSuccessNotification,
 } from "./notify"
+import { handleConfigCommand } from "./config-cli"
+import { runDoctor } from "./doctor"
+import { acquirePidLock, releasePidLock } from "./pidlock"
 import { runSetup, runSetupNonInteractive } from "./setup"
 import type { NtfyMessage } from "./types"
 import {
@@ -63,24 +66,6 @@ async function checkForUpdate(): Promise<void> {
   // dev: skip silently — running from source, not a compiled release
 }
 
-// ─── Message handler ──────────────────────────────────────────────────────────
-
-async function handleMessage(msg: NtfyMessage): Promise<void> {
-  const state = await loadState()
-  if (isSeen(state, msg.id)) return
-  await sendNotification(msg)
-  await saveState(markSeen(state, msg.id))
-}
-
-async function handleMissed(result: MissedMessageResult): Promise<void> {
-  if (result.type === "individual") {
-    for (const msg of result.messages) await handleMessage(msg)
-  } else if (result.type === "summary") {
-    await sendSummaryNotification(result.count, result.oldestTopic)
-  }
-  // silent → do nothing
-}
-
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 const command = process.argv[2]
@@ -90,21 +75,25 @@ if (command === "version" || command === "--version" || command === "-v") {
   process.exit(0)
 }
 
-if (command === "help" || command === "--help" || command === "-h") {
+function printHelp(): void {
   console.log(`ntfy-mac ${VERSION}
 
 Forward ntfy notifications to macOS Notification Center.
 
 Usage:
-  ntfy-mac                          Start the notification daemon
-  ntfy-mac notify -m "message"      Send a local notification
+  ntfy-mac                          Show this help
   ntfy-mac setup                    Interactive setup wizard
   ntfy-mac setup --url <url>        Non-interactive setup
                --token <token>
-  ntfy-mac update                   Update to the latest version
-  ntfy-mac uninstall                Remove all ntfy-mac files and credentials
+  ntfy-mac doctor                   Check health and configuration
+  ntfy-mac doctor --json            Machine-readable health report
+  ntfy-mac config                   Manage configuration
+  ntfy-mac config sounds            Show/change notification sounds
+  ntfy-mac notify -m "message"      Send a local notification
   ntfy-mac logs                     Tail the daemon log (stdout)
   ntfy-mac logs --error             Tail the error log (stderr)
+  ntfy-mac update                   Update to the latest version
+  ntfy-mac uninstall                Remove all ntfy-mac files and credentials
   ntfy-mac version                  Print version
   ntfy-mac help                     Print this help
 
@@ -115,7 +104,14 @@ Notify (local notification, no server required):
   ntfy-mac notify -m "text" --tag warning            With emoji tags (repeatable)
   ntfy-mac notify -m "text" --url https://...       Click to open URL
   echo '{"title":"T","body":"B"}' | ntfy-mac notify --json   Full payload via stdin
+
+The daemon is managed by launchd (brew services / LaunchAgent).
+To start manually: ntfy-mac start
 `)
+}
+
+if (command === "help" || command === "--help" || command === "-h") {
+  printHelp()
   process.exit(0)
 }
 
@@ -163,7 +159,9 @@ if (command === "notify") {
   const message = flag("-m", "--message")
   if (!message) {
     console.error("Error: -m / --message is required")
-    console.error("Usage: ntfy-mac notify -m \"message\" [-t title] [-p 1-5] [--tag name] [--url url]")
+    console.error(
+      'Usage: ntfy-mac notify -m "message" [-t title] [-p 1-5] [--tag name] [--url url]',
+    )
     process.exit(1)
   }
 
@@ -173,8 +171,16 @@ if (command === "notify") {
   const tags = flagAll("--tag")
   const clickUrl = flag("--url", "--url")
 
-  const { sound, interruptionLevel, relevanceScore } =
-    PRIORITY_CONFIG[priority] ?? PRIORITY_CONFIG[3]
+  // Load sound overrides from config (notify command doesn't require full config)
+  const notifyConfig = await loadStoredConfig()
+  const soundOverrides = (notifyConfig.sounds ?? undefined) as
+    | import("./types").SoundConfig
+    | undefined
+
+  const { sound, interruptionLevel, relevanceScore } = resolvePriorityConfig(
+    priority,
+    soundOverrides,
+  )
 
   const tagLine = renderTags(tags)
 
@@ -359,6 +365,17 @@ if (command === "uninstall") {
   process.exit(0)
 }
 
+if (command === "config") {
+  await handleConfigCommand(process.argv.slice(3))
+  process.exit(0)
+}
+
+if (command === "doctor") {
+  const jsonMode = process.argv.includes("--json")
+  await runDoctor(VERSION, jsonMode)
+  process.exit(0)
+}
+
 if (command === "setup") {
   // Non-interactive mode: ntfy-mac setup --url <url> --token <token>
   const args = process.argv.slice(3)
@@ -385,6 +402,34 @@ if (command === "setup") {
   process.exit(0)
 }
 
+// ─── Daemon entry ─────────────────────────────────────────────────────────────
+
+// Bare command: show help unless launched by launchd (ppid 1).
+// `ntfy-mac start` is the explicit manual escape hatch.
+const isDaemon = command === "start" || (command === undefined && process.ppid === 1)
+
+if (!isDaemon) {
+  if (command !== undefined) {
+    console.error(`Unknown command: ${command}\n`)
+  }
+  printHelp()
+  process.exit(command === undefined ? 0 : 1)
+}
+
+// Prevent concurrent daemon instances
+if (!acquirePidLock()) {
+  console.error("ntfy-mac: another instance is already running")
+  process.exit(1)
+}
+process.on("SIGINT", () => {
+  releasePidLock()
+  process.exit(0)
+})
+process.on("SIGTERM", () => {
+  releasePidLock()
+  process.exit(0)
+})
+
 const config = await loadConfig()
 if (!config) {
   // Rate-limit to once per hour — launchd restarts on exit-1 which would
@@ -408,6 +453,26 @@ takePendingUpdateNotification()
 
 // Non-blocking update check — never throws
 checkForUpdate().catch(() => {})
+
+// ─── Message handlers (close over config for sound overrides) ────────────────
+
+const soundOverrides = config.sounds
+
+async function handleMessage(msg: NtfyMessage): Promise<void> {
+  const state = await loadState()
+  if (isSeen(state, msg.id)) return
+  await sendNotification(msg, soundOverrides)
+  await saveState(markSeen(state, msg.id))
+}
+
+async function handleMissed(result: MissedMessageResult): Promise<void> {
+  if (result.type === "individual") {
+    for (const msg of result.messages) await handleMessage(msg)
+  } else if (result.type === "summary") {
+    await sendSummaryNotification(result.count, result.oldestTopic)
+  }
+  // silent → do nothing
+}
 
 let topics: string[]
 try {

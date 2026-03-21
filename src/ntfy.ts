@@ -186,21 +186,42 @@ async function connectSSE(
 
 // ─── Listener loop ────────────────────────────────────────────────────────────
 
+const TOPIC_RECHECK_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
+
 export async function startListener(
   config: Config,
-  topics: string[],
+  initialTopics: string[],
   onMessage: (msg: NtfyMessage) => Promise<void>,
   onMissed: (result: MissedMessageResult) => Promise<void>,
   onConnectionFailure?: () => Promise<void>,
 ): Promise<never> {
+  let topics = initialTopics
   let backoff = BACKOFF_INITIAL_MS
   let consecutiveFailures = 0
   let lastAlertAt = 0
+  let lastTopicCheck = Date.now()
   let state = await loadState()
   let since = state.lastMessageId ?? "latest"
 
   while (true) {
     let pollRequested = false
+
+    // Periodic topic re-check: if 30 min have passed, re-discover topics
+    if (Date.now() - lastTopicCheck >= TOPIC_RECHECK_INTERVAL_MS) {
+      try {
+        const freshTopics = config.topics ?? (await discoverTopics(config))
+        const added = freshTopics.filter((t) => !topics.includes(t))
+        const removed = topics.filter((t) => !freshTopics.includes(t))
+        if (added.length > 0 || removed.length > 0) {
+          if (added.length > 0) console.log(`topics: added ${added.join(", ")}`)
+          if (removed.length > 0) console.log(`topics: removed ${removed.join(", ")}`)
+          topics = freshTopics
+        }
+      } catch (err) {
+        debug(`topic re-check failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
+      lastTopicCheck = Date.now()
+    }
 
     try {
       console.log(

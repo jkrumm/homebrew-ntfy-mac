@@ -32,10 +32,15 @@ export interface NtfyMessage {
   event?: string // filter keepalive/open events
 }
 
+export interface SoundConfig {
+  [priority: string]: string | null // priority "1"-"5" → sound name or null (silent)
+}
+
 export interface Config {
   url: string // e.g. https://ntfy.jkrumm.com
   token: string
   topics?: string[] // override auto-discovery
+  sounds?: SoundConfig // per-priority sound overrides
 }
 
 export interface AppState {
