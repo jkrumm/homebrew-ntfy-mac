@@ -1,7 +1,10 @@
 import { CONFIG_PATH, loadConfig } from "./config"
 import { isSeen, loadState, markSeen, saveState } from "./dedup"
+import { NotificationBuilder, sendNotificationPayload } from "./notifications"
 import { discoverTopics, startListener, type MissedMessageResult } from "./ntfy"
 import {
+  PRIORITY_CONFIG,
+  renderTags,
   sendConnectionFailureNotification,
   sendNotification,
   sendSetupNotification,
@@ -93,6 +96,8 @@ if (command === "help" || command === "--help" || command === "-h") {
 Forward ntfy notifications to macOS Notification Center.
 
 Usage:
+  ntfy-mac                          Start the notification daemon
+  ntfy-mac notify -m "message"      Send a local notification
   ntfy-mac setup                    Interactive setup wizard
   ntfy-mac setup --url <url>        Non-interactive setup
                --token <token>
@@ -102,7 +107,86 @@ Usage:
   ntfy-mac logs --error             Tail the error log (stderr)
   ntfy-mac version                  Print version
   ntfy-mac help                     Print this help
+
+Notify (local notification, no server required):
+  ntfy-mac notify -m "text"                        Simple notification
+  ntfy-mac notify -t "Title" -m "text"              With title
+  ntfy-mac notify -t "Title" -m "text" -p 5         Priority 1-5 (sound/urgency)
+  ntfy-mac notify -m "text" --tag warning            With emoji tags (repeatable)
+  ntfy-mac notify -m "text" --url https://...       Click to open URL
+  echo '{"title":"T","body":"B"}' | ntfy-mac notify --json   Full payload via stdin
 `)
+  process.exit(0)
+}
+
+if (command === "notify") {
+  const args = process.argv.slice(3)
+
+  if (args.includes("--json")) {
+    // Full payload from stdin
+    const input = await Bun.stdin.text()
+    if (!input.trim()) {
+      console.error("Error: --json requires a JSON payload on stdin")
+      process.exit(1)
+    }
+    try {
+      const payload = JSON.parse(input) as import("./notifications").NotificationPayload
+      if (!payload.body) {
+        console.error('Error: JSON payload requires a "body" field')
+        process.exit(1)
+      }
+      payload.title ??= "ntfy-mac"
+      await sendNotificationPayload(payload)
+    } catch (err) {
+      console.error(`Error: invalid JSON — ${err instanceof Error ? err.message : String(err)}`)
+      process.exit(1)
+    }
+    process.exit(0)
+  }
+
+  // Flag-based mode
+  function flag(short: string, long: string): string | undefined {
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === short || args[i] === long) return args[i + 1]
+    }
+    return undefined
+  }
+
+  function flagAll(long: string): string[] {
+    const values: string[] = []
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === long && args[i + 1]) values.push(args[i + 1])
+    }
+    return values
+  }
+
+  const message = flag("-m", "--message")
+  if (!message) {
+    console.error("Error: -m / --message is required")
+    console.error("Usage: ntfy-mac notify -m \"message\" [-t title] [-p 1-5] [--tag name] [--url url]")
+    process.exit(1)
+  }
+
+  const title = flag("-t", "--title") ?? "ntfy-mac"
+  const priorityRaw = flag("-p", "--priority")
+  const priority = priorityRaw ? Math.max(1, Math.min(5, parseInt(priorityRaw, 10) || 3)) : 3
+  const tags = flagAll("--tag")
+  const clickUrl = flag("--url", "--url")
+
+  const { sound, interruptionLevel, relevanceScore } =
+    PRIORITY_CONFIG[priority] ?? PRIORITY_CONFIG[3]
+
+  const tagLine = renderTags(tags)
+
+  const builder = new NotificationBuilder(title, message)
+    .sound(sound)
+    .interruptionLevel(interruptionLevel)
+    .relevanceScore(relevanceScore)
+
+  if (tagLine) builder.subtitle(tagLine)
+  if (clickUrl) builder.clickUrl(clickUrl)
+
+  await builder.send()
   process.exit(0)
 }
 
